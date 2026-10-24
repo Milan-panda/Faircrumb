@@ -1,0 +1,30 @@
+{
+  "id": "/",
+  "name": "faircrumb",
+  "short_name": "faircrumb",
+  "description": "Every share, fair. Shared expenses, clear balances, and spending insights.",
+  "theme_color": "#164e43",
+  "background_color": "#f7f8f4",
+  "display": "standalone",
+  "start_url": "/",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-title" content="faircrumb"/><meta name="color-scheme" content="light dark"/>
+<meta name="theme-color" content="#f7f8f5"/>
+<script>
+(function () {
+  var preference = 'system';
+  try { var stored = localStorage.getItem('splitfree-theme'); if (stored === 'light' || stored === 'dark') preference = stored; } catch (_) {}
+  var dark = preference === 'dark' || (preference === 'system' && typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches);
+  var root = document.documentElement;
+  root.dataset.theme = dark ? 'dark' : 'light';
+  root.style.colorScheme = dark ? 'dark' : 'light';
+  document.querySelector('meta[name="theme-color"]').setAttribute('content', dark ? '#141d19' : '#f7f8f5');
+})();
+</script>
+<style>
+html { background: var(--canvas, #f7f8f5); color-scheme: light; }
+html[data-theme="dark"] { background: var(--canvas, #141d19); color-scheme: dark; }
+@media (prefers-color-scheme: dark) { html:not([data-theme]) { background: var(--canvas, #141d19); color-scheme: dark; } }
+</style><meta name="description" content="Every share, fair. Shared expenses, clear balances, and spending insights."/><link rel="manifest" href="/manifest.webmanifest"/><link rel="icon" href="/icon.svg"/><link rel="apple-touch-icon" href="/icon-192.png"/><title>faircrumb · Every share, fair.</title></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>

@@ -1,0 +1,20 @@
+import vm from 'node:vm';
+import { readFile } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+const code = await readFile(new URL('../dist/sw.js', import.meta.url), 'utf8');
+const listeners = {}; let skipped = false; const deleted = []; let added = [];
+const shell = { body: 'offline app shell' }; const cache = { addAll: async urls => { added = urls; } };
+const self = { location: { origin: 'https://faircrumb.example' }, clients: { claim: async () => { } }, addEventListener: (name, cb) => { listeners[name] = cb; }, skipWaiting: () => { skipped = true; } };
+const caches = { open: async () => cache, keys: async () => ['faircrumb-old', 'splitfree-old', 'another-app-cache'], delete: async key => { deleted.push(key); }, match: async path => path === '/index.html' ? shell : { body: 'cached asset' } };
+vm.runInNewContext(code, { self, caches, URL, fetch: async () => { throw new Error('Offline'); } });
+async function lifecycle(name) { let pending; listeners[name]({ waitUntil: p => { pending = p; } }); await pending; }
+await lifecycle('install'); assert.ok(added.includes('/index.html')); assert.ok(added.includes('/icon-192.png')); assert.ok(added.some(url => url.endsWith('.js'))); assert.equal(skipped, false);
+await lifecycle('activate'); assert.deepEqual(deleted, ['faircrumb-old', 'splitfree-old']);
+let response;
+listeners.fetch({ request: { url: 'https://faircrumb.example/groups/test', method: 'GET', mode: 'navigate' }, respondWith: p => { response = p; } });
+assert.equal(await response, shell);
+let intercepted = false;
+listeners.fetch({ request: { url: 'https://project.supabase.co/rest/v1/ledger_groups', method: 'GET' }, respondWith: () => { intercepted = true; } });
+assert.equal(intercepted, false);
+listeners.message({ data: 'SKIP_WAITING' }); assert.equal(skipped, true);
+console.log('Passed: complete app-shell precache, offline navigation fallback, scoped cache cleanup, explicit update activation, and no Supabase API caching.');

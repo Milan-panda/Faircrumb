@@ -1,0 +1,9 @@
+import { localDate, type Group, type Profile } from './domain';
+export const demoProfile: Profile = { id: 'demo-me', name: 'Alex Morgan', username: 'alex', upi: '' };
+const members = [demoProfile, { id: 'demo-priya', name: 'Priya Shah', username: 'priya' }, { id: 'demo-rahul', name: 'Rahul Mehta', username: 'rahul' }, { id: 'demo-sam', name: 'Sam Wilson', username: 'sam', ghost: true }];
+const day = (offset: number) => { const d = new Date(); d.setDate(d.getDate() - offset); return localDate(d); };
+export function demoGroups(): Group[] {
+  const g: Group = { id: 'demo-goa', name: 'Goa, with the gang', category: 'trip', currency: 'INR', members, revision: 0, audit: [], expenses: [] };
+  g.expenses = [['e1', 'A place by the sea', 1840000, 'Stay', 3, 'demo-me'], ['e2', 'Dinner at Thalassa', 428000, 'Food & drinks', 2, 'demo-priya'], ['e3', 'Scooters for the weekend', 240000, 'Travel', 2, 'demo-me'], ['e4', 'Coffee & a slow morning', 124000, 'Food & drinks', 1, 'demo-rahul'], ['e5', 'Sunset snacks', 86000, 'Food & drinks', 0, 'demo-me']].map(([id, description, amount, category, offset, payer]) => ({ id: String(id), description: String(description), amount: Number(amount), category: String(category), date: day(Number(offset)), splitType: 'EQUAL', excluded: false, splits: members.map(m => ({ memberId: m.id, paid: m.id === payer ? Number(amount) : 0, owed: Number(amount) / 4 })) }));
+  return [g, { id: 'demo-home', name: 'The apartment', category: 'home', currency: 'INR', members: members.slice(0, 3), expenses: [{ id: 'e6', description: 'Weekly grocery run', amount: 246000, category: 'Groceries', date: day(1), splitType: 'EQUAL', excluded: false, splits: members.slice(0, 3).map(m => ({ memberId: m.id, paid: m.id === 'demo-priya' ? 246000 : 0, owed: 82000 })) }], audit: [], revision: 0 }, { id: 'demo-coffee', name: 'Coffee club', category: 'food', currency: 'INR', members: members.slice(0, 2), expenses: [], audit: [], revision: 0 }];
+}
