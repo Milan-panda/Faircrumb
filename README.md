@@ -71,7 +71,7 @@ Appearance is available from the sun/moon button on onboarding and in the app he
 
 - This implementation stores one validated JSON document per group rather than the blueprint's normalized tables. It is suited to small friend groups; a group, including audit history, is capped at 1 MB, with up to 100 members. Migrate to normalized expenses/splits and an append-only operation queue for larger ledgers.
 - Concurrent changes to the same group cause a visible conflict; they do not silently merge. Offline sync runs while the app is open. JSON backups are readable exports; importing/merging them is not implemented.
-- Receipt OCR, recurring expenses, push notifications, public invite links, multi-currency conversion, cross-group netting and account deletion are not included. Existing friends are added by username. UPI links initiate external payments; faircrumb cannot verify payment completion.
+- Receipt OCR, recurring expenses, system push notifications, multi-currency conversion, cross-group netting and account deletion are not included. Existing friends are added by username. UPI links initiate external payments; faircrumb cannot verify payment completion.
 - CSV rows contain paid and owed shares. Printed reports use the browser's PDF destination, not a dedicated PDF renderer. The service worker only caches the app shell; it never intercepts Supabase API requests. Receipts require connectivity and are not included as binary files in JSON backups.
 - Passwords are managed by Supabase Auth. The browser retains auth sessions and local ledger data; use your own device and protect it. Signing out retains the per-profile cache so pending data can be recovered on that device.
 - Local verification used existing installed package copies through ignored symlinks because this session could not access the package registry. On another machine run `pnpm install` normally. No lockfile was generated; the validated direct dependency versions are listed in `DEVELOPMENT_LOG.md`.
@@ -106,3 +106,13 @@ Email links request a return to `https://your-host/?account=setup` (or the corre
 See [the server-only Admin setup guide](docs/ADMIN_SETUP.md). Admin emails are configured as the JSON array `admin_priviledge` in a Supabase Edge Function secret, not a browser/Vite variable. `[]` disables all admins. Every admin request verifies the current Auth user and confirmed email server-side. New RPCs remain inaccessible to ordinary users.
 
 The Admin tab lists users, all groups/ledgers, token status and activity. Historical token plaintext cannot be recovered from one-way hashes; an admin can reissue a 24-hour one-use token for ghost or eligible anonymous profiles. Redemption preserves the original profile and group/expense IDs and revokes the old session's profile access. Do not delete the old Auth row or rewrite profile IDs manually as a recovery shortcut.
+
+### Invitations
+
+Group invitations join signed-in users directly; new users complete normal onboarding first. Personal invitations claim the exact unclaimed profile you added and sign the recipient in automatically without typing a claim token. See [invite setup and behavior](INVITES.md).
+
+### In-app expense notifications
+
+The header bell shows unread updates, including on mobile. New expenses create one backend notification per included participant other than the author; zero-share/nonpaying members and settlements are excluded. Users can view expenses and mark individual or all updates as read. Updates arrive through Supabase Realtime while the app is open and are fetched again on reconnect/focus, with a periodic fallback. Offline expense notifications are created after successful sync. Unclaimed profiles retain updates for when their owner joins. Edits, restored expenses and sync retries do not create duplicate notifications. Existing historical expenses are not backfilled.
+
+Apply `supabase/migrations/202610250003_notifications.sql` once in Supabase SQL Editor (after earlier migrations), then deploy the updated frontend. No new secrets or Edge Functions are required. The migration enables the notifications table in `supabase_realtime` and enforces recipient-only access. These are in-app updates; OS notifications while the PWA is closed require a separate Web Push feature. The inbox displays the latest 100 updates and its unread count includes all unread records.

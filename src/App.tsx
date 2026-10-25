@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowDownLeft, ArrowDownToLine, ArrowLeft, ArrowRight, ArrowUpRight, BarChart3, Check, ChevronDown, ChevronRight, CircleHelp, Clock3, Cloud, Download, FolderHeart, Home, Eye, EyeOff, Leaf, Link, LogOut, Menu, Plus, Search, Settings, ShieldCheck, Sparkles, Users, Wallet, WifiOff, X } from 'lucide-react';
+import { Bell, ArrowDownLeft, ArrowDownToLine, ArrowLeft, ArrowRight, ArrowUpRight, BarChart3, Check, ChevronDown, ChevronRight, CircleHelp, Clock3, Cloud, Download, FolderHeart, Home, Eye, EyeOff, Leaf, Link, LogOut, Menu, Plus, Search, Settings, ShieldCheck, Sparkles, Users, Wallet, WifiOff, X } from 'lucide-react';
 import { registerSW } from './lib/pwa';
 import { usePwaInstall, type InstallController } from './lib/install';
 import { InstallButton, InstallPromotion } from './InstallApp';
@@ -13,10 +13,14 @@ import { ThemeToggle, ThemeSettings } from './ThemeControls';
 import { Avatar, Amount, Empty, Field, Modal } from './components';
 import ExpenseForm from './ExpenseForm';
 import SplitDefaults from './SplitDefaults';
+import NotificationsPage from './NotificationsPage';
+import { useNotifications } from './lib/notifications';
+import InvitePanel, { ShareInvite } from './InvitePanel';
+import { readInviteLink, clearInviteLink, createPersonInvite, type CreatedInvite } from './lib/invites';
 import SettlementCard from './SettlementCard';
 import { balances, categories, categoryIcons, debts, exportCsv, lensAmount, money, localDate, restorableExpense, uid, type Expense, type Group, type Audit, type Member } from './lib/domain';
-type Page = 'overview' | 'groups' | 'friends' | 'activity' | 'analytics' | 'settings' | 'admin';
-type Dialog = 'expense' | 'group' | 'member' | 'settle' | 'detail' | 'help' | 'defaults' | null;
+type Page = 'overview' | 'groups' | 'friends' | 'activity' | 'analytics' | 'settings' | 'admin' | 'notifications';
+type Dialog = 'expense' | 'group' | 'member' | 'settle' | 'detail' | 'help' | 'defaults' | 'invite' | null;
 const groupSymbols: Record<string, string> = { trip: '🏖️', home: '🪴', food: '☕', couple: '💛', other: '✨' };
 const navItems: {
   id: Page;
@@ -27,6 +31,7 @@ function download(name: string, text: string, type = 'text/csv') { const url = U
 export default function App() {
   const ledger = useLedger();
   const { profile, groups, demo, online, pending } = ledger;
+  const notifications = useNotifications(profile?.id, demo, online);
   const admin = useAdminAccess(profile?.id, demo);
   const [page, setPage] = useState<Page>(() => new URLSearchParams(window.location.search).get('account') === 'setup' ? 'settings' : 'overview');
   const [active, setActive] = useState<string | null>(null);
@@ -43,6 +48,18 @@ export default function App() {
   const [lens, setLens] = useState('consumption');
   const [period, setPeriod] = useState('all');
   const install = usePwaInstall();
+  const [incoming, setIncoming] = useState(readInviteLink);
+  const [inviteError, setInviteError] = useState('');
+  const [inviteAttempt, setInviteAttempt] = useState(0);
+  const groupInviteReady = incoming?.kind !== 'group' || !!profile && !demo;
+  useEffect(() => {
+    if (!ledger.ready || !incoming || !online || !groupInviteReady) return;
+    let active = true; setInviteError('');
+    const task = incoming.kind === 'person' ? ledger.acceptPersonalInvitation(incoming.token) : ledger.acceptGroupInvitation(incoming.token);
+    void task.then(groupId => { if (!active) return; clearInviteLink(); setIncoming(null); setPage(groupId ? 'groups' : 'overview'); setActive(groupId); setToast(incoming.kind === 'person' ? 'Your profile is ready. Welcome to faircrumb.' : 'You joined the group.'); }).catch(e => { if (active) setInviteError(e.message); });
+    return () => { active = false; };
+  }, [ledger.ready, incoming, online, groupInviteReady, inviteAttempt, ledger.acceptPersonalInvitation, ledger.acceptGroupInvitation]);
+
   const [update, setUpdate] = useState<((reload?: boolean) => Promise<void>) | null>(null);
   useEffect(() => {
     const updateSW = registerSW({ onNeedRefresh() { setUpdate(() => updateSW); } });
@@ -101,8 +118,13 @@ export default function App() {
       </span>
       <p>Making room for the good stuff…</p>
     </div>;
+  if (incoming?.kind === 'person' || (incoming?.kind === 'group' && profile && !demo)) return <main className="invite-landing">
+    <img src="/icon.svg" width="56" height="56" alt="faircrumb" />
+    <h1>{incoming.kind === 'person' ? 'Your faircrumb invitation' : 'Joining your group'}</h1>
+    <p>{!online ? 'Connect to the internet to accept this invitation.' : inviteError || 'Getting your invitation ready…'}</p>{inviteError && <button type="button" className="button primary" onClick={() => setInviteAttempt(a => a + 1)}>Try again</button>}<button type="button" className="text-button" onClick={() => { clearInviteLink(); setIncoming(null); }}>Continue without this invitation</button>
+  </main>;
   if (!profile)
-    return <Onboarding onStart={ledger.onboard} demo={ledger.startDemo} error={ledger.error} install={install} />;
+    return <Onboarding invitation={incoming?.kind === 'group'} onStart={ledger.onboard} demo={ledger.startDemo} error={ledger.error} install={install} />;
   const greet = new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 17 ? 'Good afternoon' : 'Good evening';
   const memberName = (g: Group, id: string) => g.members.find(m => m.id === id)?.name || 'Member';
   const exportData = () => { download('faircrumb-expenses.csv', exportCsv(selectedGroups)); notify('CSV exported. Yours, always.'); };
@@ -160,10 +182,12 @@ export default function App() {
           </button>
           <span className="breadcrumb">
             <span className="breadcrumb-root">Your space</span> <ChevronRight size={14} />
-            <strong>{group ? group.name : navItems.find(i => i.id === page)?.label || (page === 'admin' ? 'Admin' : 'Settings')}</strong>
+            <strong>{group ? group.name : navItems.find(i => i.id === page)?.label || (page === 'notifications' ? 'Notifications' : page === 'admin' ? 'Admin' : 'Settings')}</strong>
           </span>
         </div>
         <div className="row topbar-actions">
+          <button type="button" className="icon-button notification-bell" aria-label={`Notifications${notifications.feed.unread ? `, ${notifications.feed.unread} unread` : ''}`} onClick={() => navigate('notifications')}>
+            <Bell size={19} />{notifications.feed.unread > 0 && <span className="notification-badge">{notifications.feed.unread > 99 ? '99+' : notifications.feed.unread}</span>}</button>
           <ThemeToggle />
           <InstallButton controller={install} compact />
           <span className={`sync-status ${!online ? 'offline' : ''}`}>{!online ? <WifiOff size={14} /> : <Cloud size={15} />}<span>{!online ? 'Offline' : demo ? 'Demo workspace' : pending.length ? `${pending.length} pending` : 'Cloud connected'}</span>
@@ -201,7 +225,14 @@ export default function App() {
       </div>}
       <main id="main" className="main-content" data-view={`${page}:${active || 'all'}`}>
         <div className="view-content" key={`${page}:${active || 'all'}`}>
-          {page === 'admin' ? (admin.allowed ? <Suspense fallback={<p className="helper" role="status">Opening admin workspace…</p>}>
+          {page === 'notifications' ? <NotificationsPage controller={notifications} online={online} demo={demo} open={async n => {
+            if (pending.includes(n.group_id)) throw new Error('Sync your pending group changes before opening this update.');
+            let target = groups.find(g => g.id === n.group_id);
+            if (!demo) target = await ledger.fetchNotificationGroup(n.group_id);
+            const expense = target?.expenses.find(e => e.id === n.expense_id);
+            if (!target || !expense) throw new Error('This expense has been deleted. You can mark this notification as read.');
+            await notifications.markRead(n.id); setPage('groups'); setActive(target.id); setDetail({ group: target, expense }); setDialog('detail');
+          }} /> : page === 'admin' ? (admin.allowed ? <Suspense fallback={<p className="helper" role="status">Opening admin workspace…</p>}>
             <AdminPage />
           </Suspense> : <div className="panel settings-panel">
             <h1>Admin access required</h1>
@@ -269,6 +300,8 @@ export default function App() {
               <PageHeading eyebrow={`${group.members.length} PEOPLE · ${group.currency} · ${group.category.toUpperCase()}`} title={group.name} subtitle="The memories are shared. The maths is handled." actions={<>
                 <button type="button" className="button" onClick={() => setDialog('member')}>
                   <Users size={16} />Add people</button>
+                <button type="button" className="button" onClick={() => setDialog('invite')}>
+                  <Link size={16} />Invite</button>
                 <button type="button" className="button primary" onClick={openExpense}>
                   <Plus size={18} />Add expense</button>
               </>} />
@@ -345,6 +378,8 @@ export default function App() {
               </button>)}</div> : <Empty title="Make room for your people" detail="Start with your next trip, your apartment, or just dinner." action={<button type="button" className="button primary" onClick={() => setDialog('group')}>
                 <Plus size={16} /> Create your first group</button>} />}</section>}
             {group && <div className="group-toolbar">
+              <button type="button" className="button" onClick={() => setDialog('invite')}>
+                <Link size={16} />Invite to group</button>
               <button type="button" className="button" onClick={() => setDialog('defaults')}>
                 <Settings size={16} />Split defaults</button>
               <button type="button" className="button" onClick={() => setDialog('settle')}>
@@ -448,8 +483,11 @@ export default function App() {
     {dialog === 'defaults' && group && <Modal title="Your usual split, remembered." close={() => setDialog(null)}>
       <SplitDefaults group={group} save={value => { ledger.commit(audit({ ...group, defaultSplit: value }, 'Updated split defaults', group.name)); setDialog(null); notify('Default split saved for future expenses.'); }} />
     </Modal>}
+    {dialog === 'invite' && group && <Modal title="Invite to this group" close={() => setDialog(null)}>
+      <InvitePanel groupId={group.id} enabled={!demo && online && !pending.includes(group.id) && group.revision > 0} />
+    </Modal>}
     {dialog === 'member' && group && <Modal title="Bring your people along." close={() => setDialog(null)}>
-      <AddMember group={group} find={ledger.addFriend} save={member => { ledger.commit(audit({ ...group, members: [...group.members, member] }, 'Added member', member.name)); notify(group.defaultSplit ? `${member.name} is in. Update split defaults to include them.` : `${member.name} is in.`); }} />
+      <AddMember demo={demo} group={group} find={ledger.addFriend} save={member => { ledger.commit(audit({ ...group, members: [...group.members, member] }, 'Added member', member.name)); notify(group.defaultSplit ? `${member.name} is in. Update split defaults to include them.` : `${member.name} is in.`); }} />
     </Modal>}
     {dialog === 'settle' && <Modal title="A clean slate feels good." close={() => setDialog(null)}>
       <p className="modal-intro">Simplified within each group. Record a payment only after the money has been sent.</p>{selectedGroups.some(g => debts(g).length) ? selectedGroups.flatMap(g => debts(g).map(d =>
@@ -513,7 +551,8 @@ function PageHeading({ eyebrow, title, subtitle, actions }: {
       <p>{subtitle}</p>
     </div>{actions && <div className="heading-actions">{actions}</div>}</div>;
 }
-function Onboarding({ onStart, demo, error, install }: {
+function Onboarding({ onStart, demo, error, install, invitation = false }: {
+  invitation?: boolean;
   install: InstallController;
   onStart: (name: string, user: string, claim: string, password: string, login: boolean) => Promise<void>;
   demo: () => void;
@@ -576,7 +615,7 @@ function Onboarding({ onStart, demo, error, install }: {
       <div className="welcome-appearance">
         <ThemeToggle />
       </div>
-      <div className="onboarding-card">
+      <div className="onboarding-card">{invitation && <p className="confirmation-notice">You’ve been invited to a group. Create your account or sign in below to join automatically.</p>}
         <InstallPromotion controller={install} />
         <span className="pill">
           <Leaf size={13} /> A LITTLE LESS FRICTION</span>
@@ -639,7 +678,8 @@ function CreateGroup({ me, onSave }: {
     </button>
   </form>;
 }
-function AddMember({ group, find, save }: {
+function AddMember({ group, find, save, demo }: {
+  demo: boolean;
   group: Group;
   find: (user: string, name: string) => Promise<{
     member: Member;
@@ -651,7 +691,7 @@ function AddMember({ group, find, save }: {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [token, setToken] = useState('');
+  const [personalInvite, setPersonalInvite] = useState<CreatedInvite | null>(null);
   return <form className="form-stack" onSubmit={async (e) => {
     e.preventDefault();
     setBusy(true);
@@ -661,7 +701,7 @@ function AddMember({ group, find, save }: {
         throw new Error('They’re already in this group.');
       const result = await find(user.toLowerCase().replace(/^@/, ''), name.trim());
       save(result.member);
-      setToken(result.claim || '');
+      if (result.member.ghost && !demo) setPersonalInvite(await createPersonInvite(result.member.id, result.claim || undefined));
       setUser('');
       setName('');
     }
@@ -672,19 +712,18 @@ function AddMember({ group, find, save }: {
       setBusy(false);
     }
   }}>
-    <p className="modal-intro">Use an existing @username, or create an unclaimed profile. They can join later with the private claim token.</p>
+    <p className="modal-intro">Use an existing @username, or create an unclaimed profile. For a new person, we create a personal link that signs them into this exact profile. No token entry needed.</p>
     <Field label="Username">
       <input required pattern="@?[a-zA-Z0-9_]{3,24}" placeholder="@priya" value={user} onChange={e => setUser(e.target.value)} />
     </Field>
     <Field label="Name (for a new profile)">
       <input placeholder="Priya Shah" maxLength={60} value={name} onChange={e => setName(e.target.value)} />
-    </Field>{error && <p className="form-error" role="alert">{error}</p>}{token && <div className="claim-box">
-      <strong>Share this privately with your friend</strong>
-      <p>Save it now. This token is only shown once.</p>
-      <code>{token}</code>
-      <button className="button small-button" type="button" onClick={() => void navigator.clipboard.writeText(token).catch(() => setError('Copy the token manually from the text above.'))}>
-        <Link size={14} />Copy token</button>
-    </div>}<button type="submit" className="button primary full" disabled={busy}>{busy ? 'Finding your friend…' : 'Add to group'}<Plus size={16} />
+    </Field>{error && <p className="form-error" role="alert">{error}</p>}{personalInvite && <ShareInvite key={personalInvite.id} kind="person" invite={personalInvite} />}<div className="invite-links">{group.members.filter(m => m.ghost).map(m =>
+      <div key={m.id}>
+        <span>@{m.username} · not yet joined</span>
+        <button type="button" className="text-button" disabled={demo || busy} onClick={async () => { setBusy(true); setError(''); try { setPersonalInvite(await createPersonInvite(m.id)); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>Invite this person</button>
+      </div>)}</div>
+    <button type="submit" className="button primary full" disabled={busy}>{busy ? 'Finding your friend…' : 'Add to group'}<Plus size={16} />
     </button>
   </form>;
 }

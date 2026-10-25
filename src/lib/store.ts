@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from './supabase';
+import { acceptPersonInvite, inviteRpc, readInviteLink, type GroupAcceptance } from './invites';
 import { initialSecurity } from './account-security';
 import { setAccountPassword } from './password';
 import { demoGroups, demoProfile } from './demo';
@@ -41,7 +42,7 @@ export function useLedger() {
   useEffect(() => {
     let alive = true; async function boot() {
       try {
-        if (localStorage.getItem('splitfree-mode') === 'demo') {
+        if (localStorage.getItem('splitfree-mode') === 'demo' && !readInviteLink()) {
           if (alive)
             apply(demoProfile, true);
           return;
@@ -198,6 +199,33 @@ export function useLedger() {
       throw new Error('Device storage is full. Export your data before adding more.');
     } publish({ ...current, groups: nextGroups, pending: nextPending });
   }
+  const fetchNotificationGroup = useCallback(async (id: string) => {
+    const before = state.current;
+    if (!supabase || !before.profile || before.demo || !navigator.onLine) throw new Error('Connect to the internet to open this expense.');
+    if (before.pending.includes(id)) throw new Error('Sync your pending changes before opening this update.');
+    const { data, error } = await supabase.from('ledger_groups').select('document,revision').eq('id', id).single();
+    if (error || !data) throw new Error('This group is no longer available.');
+    const current = state.current;
+    if (current.profile?.id !== before.profile.id || current.demo) throw new Error('Your account changed. Open the notification again.');
+    if (current.pending.includes(id)) throw new Error('Sync your pending changes before opening this update.');
+    const remote = { ...data.document, revision: data.revision } as Group;
+    const cached = current.groups.find(g => g.id === id);
+    const target = cached && cached.revision > remote.revision ? cached : remote;
+    publish({ ...current, groups: [target, ...current.groups.filter(g => g.id !== id)] }); return target;
+  }, [publish]);
+  const acceptPersonalInvitation = useCallback(async (token: string) => {
+    const result = await acceptPersonInvite(token);
+    localStorage.removeItem('splitfree-mode');
+    try { localStorage.setItem(`splitfree-auth-${result.authId}`, JSON.stringify(result.profile)); } catch {/* The ledger cache reports storage failures separately. */ }
+    apply(result.profile, false); await refresh(); return result.groupId;
+  }, [apply, refresh]);
+  const acceptGroupInvitation = useCallback(async (token: string) => {
+    if (!state.current.profile || state.current.demo) throw new Error('Create an account or sign in before joining this group.');
+    const result = await inviteRpc<GroupAcceptance>('accept_group_invite', { p_token: token });
+    const current = state.current;
+    if (!current.pending.includes(result.groupId)) publish({ ...current, groups: [result.group, ...current.groups.filter(g => g.id !== result.groupId)] });
+    return result.groupId;
+  }, [publish]);
   async function onboard(name: string, username: string, claim: string, password: string, login: boolean) {
     if (!supabase)
       throw new Error('Connect Supabase using .env.local to create an account. You can explore the demo now.'); if (login) {
@@ -225,8 +253,8 @@ export function useLedger() {
       return; if (!current.demo && current.pending.length)
       throw new Error('Sync pending expenses before updating your profile.'); if (!current.demo) {
         if (password) {
-          try {            
-const user = await setAccountPassword(supabase!.auth, current.profile.username, password, email);
+          try {
+            const user = await setAccountPassword(supabase!.auth, current.profile.username, password, email);
             securityVersion.current++;
             setSecurity({ checking: false, email: user.email || '', pendingEmail: user.new_email || '', emailConfirmed: !!user.email_confirmed_at, hasPassword: true, error: '' });
           } catch (e) { await refreshAccount(); throw e; }
@@ -276,5 +304,5 @@ const user = await setAccountPassword(supabase!.auth, current.profile.username, 
       return; const { data, error } = await supabase.from('ledger_groups').select('document,revision'); if (error)
       throw error; publish({ ...state.current, pending: [], groups: (data || []).map(r => ({ ...r.document, revision: r.revision })) }); setError('');
   }
-  return { profile, groups, security, refreshAccount, demo, ready, online, pending, error, setError, commit, onboard, updateProfile, addFriend, uploadReceipt, signOut, reloadCloud, sync, startDemo: () => { localStorage.setItem('splitfree-mode', 'demo'); apply(demoProfile, true); } };
+  return { profile, groups, fetchNotificationGroup, acceptPersonalInvitation, acceptGroupInvitation, security, refreshAccount, demo, ready, online, pending, error, setError, commit, onboard, updateProfile, addFriend, uploadReceipt, signOut, reloadCloud, sync, startDemo: () => { localStorage.setItem('splitfree-mode', 'demo'); apply(demoProfile, true); } };
 }

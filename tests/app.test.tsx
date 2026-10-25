@@ -135,3 +135,11 @@ describe('app flows', () => {
   });
 
 });
+
+it('opens the notification inbox from the persistent header bell',async()=>{
+ await click(button('Explore the demo'));
+ const bell=host.querySelector('button[aria-label="Notifications"]') as HTMLButtonElement;
+ expect(bell).not.toBeNull();await click(bell);
+ expect(host.querySelector('h1')?.textContent).toBe('Notifications');
+ expect(host.textContent).toContain('Notifications live in your real workspace');
+});
