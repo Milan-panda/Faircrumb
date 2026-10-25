@@ -6,3 +6,16 @@ dist
 playwright-report
 test-results
 .vercel
+
+# Server-only admin allowlist; deploy with Supabase secrets, never VITE_.
+supabase/.env.admin
+
+# Local CLI management credentials; never deploy as Edge Function secrets.
+.env.deploy.local
+
+# Personal Docs
+docs/
+DESIGN.md
+DEVELOPMENT_LOG.md
+faircrumb_architecture_blueprint.md
+PRODUCT.md

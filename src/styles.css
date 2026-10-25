@@ -48,10 +48,10 @@ button:disabled {
 a {
   color:inherit
 }
-button,a,input,select,summary {
+button,a,summary {
   outline-offset:4px
 }
-button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible {
+button:focus-visible,a:focus-visible,summary:focus-visible {
   outline:2px solid var(--focus)
 }
 button {
@@ -835,9 +835,6 @@ strong {
   border:0;
   background:transparent;
   font-size:10px
-}
-.search-box input:focus-visible {
-  outline-offset:0
 }
 .expense-controls>select {
   width:130px;

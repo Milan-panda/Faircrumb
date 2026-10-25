@@ -4,8 +4,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { useLedger } from '../src/lib/store';
 import type { Group, Profile } from '../src/lib/domain';
-const mocks = vi.hoisted(() => ({ rpc: vi.fn(), select: vi.fn(), getSession: vi.fn(), getUser: vi.fn(), updateUser: vi.fn(), signInWithPassword: vi.fn() }));
-vi.mock('../src/lib/supabase', () => ({ supabase: { rpc: mocks.rpc, from: () => ({ select: mocks.select }), auth: { getSession: mocks.getSession, getUser: mocks.getUser, updateUser: mocks.updateUser, signInWithPassword: mocks.signInWithPassword }, channel: () => ({ on() { return this; }, subscribe() { return this; } }), removeChannel: () => Promise.resolve() } }));
+const mocks = vi.hoisted(() => ({ rpc: vi.fn(), select: vi.fn(), getSession: vi.fn(), getUser: vi.fn(), updateUser: vi.fn(), signInWithPassword: vi.fn(), onAuthStateChange: vi.fn() }));
+vi.mock('../src/lib/supabase', () => ({ supabase: { rpc: mocks.rpc, from: () => ({ select: mocks.select }), auth: { onAuthStateChange: mocks.onAuthStateChange, getSession: mocks.getSession, getUser: mocks.getUser, updateUser: mocks.updateUser, signInWithPassword: mocks.signInWithPassword }, channel: () => ({ on() { return this; }, subscribe() { return this; } }), removeChannel: () => Promise.resolve() } }));
 const me: Profile = { id: 'me', name: 'Me', username: 'myname' };
 const group: Group = { id: 'g', name: 'Trip', category: 'trip', currency: 'INR', revision: 0, members: [me], expenses: [], audit: [] };
 let ledger: ReturnType<typeof useLedger>;
@@ -17,6 +17,8 @@ beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   localStorage.clear();
   vi.clearAllMocks();
+  mocks.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } } });
+  mocks.getUser.mockResolvedValue({ data: { user: { id: 'auth-me', email: '', is_anonymous: true } }, error: null });
   vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
   mocks.getSession.mockResolvedValue({ data: { session: { user: { id: 'auth-me' } } }, error: null });
   mocks.rpc.mockImplementation(async (name: string) => ({ data: name === 'my_profile' ? me : 1, error: null }));
@@ -79,30 +81,30 @@ describe('offline and synchronization', () => {
     expect(ledger.error).toContain('another device');
   });
   it('keeps password success if the separate profile save fails', async () => {
-    const user={id:'auth-me',email:'myname@splitfree.internal',email_confirmed_at:'2026-10-25',is_anonymous:false};
-    mocks.getUser.mockResolvedValue({data:{user},error:null});
-    mocks.updateUser.mockResolvedValue({data:{user},error:null});
-    mocks.rpc.mockImplementation(async(name:string)=>name==='update_profile'?{data:null,error:new Error('Profile write failed')}:{data:me,error:null});
+    const user = { id: 'auth-me', email: 'myname@splitfree.internal', email_confirmed_at: '2026-10-25', is_anonymous: false };
+    mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+    mocks.updateUser.mockResolvedValue({ data: { user }, error: null });
+    mocks.rpc.mockImplementation(async (name: string) => name === 'update_profile' ? { data: null, error: new Error('Profile write failed') } : { data: me, error: null });
     await mount();
-    await act(async()=>{await expect(ledger.updateProfile('New name','','a-long-private-password')).rejects.toThrow('Profile write failed');});
+    await act(async () => { await expect(ledger.updateProfile('New name', '', 'a-long-private-password')).rejects.toThrow('Profile write failed'); });
     expect(ledger.profile?.hasPassword).toBe(true);
     expect(ledger.profile?.name).toBe('Me');
     expect(JSON.parse(localStorage.getItem('splitfree-me-v1')!).profile.hasPassword).toBe(true);
   });
   it('does not mark the account protected if Auth rejects the password', async () => {
-    const user={id:'auth-me',email:'myname@splitfree.internal',email_confirmed_at:'2026-10-25',is_anonymous:false};
-    mocks.getUser.mockResolvedValue({data:{user},error:null});
-    mocks.updateUser.mockResolvedValue({data:{user:null},error:new Error('Password rejected')});
+    const user = { id: 'auth-me', email: 'myname@splitfree.internal', email_confirmed_at: '2026-10-25', is_anonymous: false };
+    mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+    mocks.updateUser.mockResolvedValue({ data: { user: null }, error: new Error('Password rejected') });
     await mount();
-    await act(async()=>{await expect(ledger.updateProfile('New name','','a-long-private-password')).rejects.toThrow('Password rejected');});
+    await act(async () => { await expect(ledger.updateProfile('New name', '', 'a-long-private-password')).rejects.toThrow('Password rejected'); });
     expect(ledger.profile?.hasPassword).not.toBe(true);
-    expect(mocks.rpc.mock.calls.some(([name])=>name==='update_profile')).toBe(false);
+    expect(mocks.rpc.mock.calls.some(([name]) => name === 'update_profile')).toBe(false);
   });
 
-  it('signs in with the real email without appending the synthetic domain',async()=>{
-    mocks.signInWithPassword.mockResolvedValue({error:null});await mount();
-    await act(async()=>ledger.onboard('','milan@mail.com','','a-long-private-password',true));
-    expect(mocks.signInWithPassword).toHaveBeenCalledWith({email:'milan@mail.com',password:'a-long-private-password'});
+  it('signs in with the real email without appending the synthetic domain', async () => {
+    mocks.signInWithPassword.mockResolvedValue({ error: null }); await mount();
+    await act(async () => ledger.onboard('', 'milan@mail.com', '', 'a-long-private-password', true));
+    expect(mocks.signInWithPassword).toHaveBeenCalledWith({ email: 'milan@mail.com', password: 'a-long-private-password' });
   });
 
 });

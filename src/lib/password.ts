@@ -2,9 +2,9 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 const confirmationMessage = 'Confirm your email using the link Supabase sent, then return here and save your password again. Keep this browser signed in. If no email arrives, check spam and the project’s SMTP configuration.';
 
-export class EmailConfirmationRequired extends Error {}
+export class EmailConfirmationRequired extends Error { }
 
-export class AuthEmailRateLimited extends Error {}
+export class AuthEmailRateLimited extends Error { }
 function checkAuthError(error: { message: string; code?: string } | null) {
   if (!error) return;
   if (error.code === 'over_email_send_rate_limit' || /email rate limit exceeded/i.test(error.message)) {
@@ -32,7 +32,7 @@ export async function setAccountPassword(auth: SupabaseClient['auth'], username:
     if (user.new_email === email) throw new EmailConfirmationRequired(confirmationMessage);
     // Supabase creates a password identity before processing an email change when
     // both fields are sent together. Anonymous users must link their email first.
-    const linked = await auth.updateUser({ email }, typeof window === 'undefined' ? undefined : { emailRedirectTo: window.location.origin });
+    const linked = await auth.updateUser({ email }, typeof window === 'undefined' ? undefined : { emailRedirectTo: `${window.location.origin}/?account=setup` });
     checkAuthError(linked.error);
     const verified = await auth.getUser();
     if (verified.error) throw verified.error;

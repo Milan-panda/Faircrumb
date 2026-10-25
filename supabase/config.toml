@@ -1,0 +1,4 @@
+# Authenticate inside the function using Auth getUser(token), including projects
+# with asymmetric JWT signing keys. Every privileged action is checked there.
+[functions.admin]
+verify_jwt = false

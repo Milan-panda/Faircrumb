@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from './supabase';
+import { initialSecurity } from './account-security';
 import { setAccountPassword } from './password';
 import { demoGroups, demoProfile } from './demo';
 import type { Group, Profile } from './domain';
@@ -33,8 +34,10 @@ export function useLedger() {
   const [online, setOnline] = useState(navigator.onLine);
   const [error, setError] = useState('');
   const syncing = useRef(false);
+  const [security, setSecurity] = useState(initialSecurity);
+  const securityVersion = useRef(0);
   const publish = useCallback((next: LedgerState) => { state.current = next; setSnapshot(next); }, []);
-  const apply = useCallback((p: Profile, d: boolean) => { const cached = safeRead(storageKey(p, d)) as Snapshot | null; publish({ profile: cached?.profile || p, groups: cached?.groups || (d ? demoGroups() : []), pending: cached?.pending || [], demo: d }); setReady(true); }, [publish]);
+  const apply = useCallback((p: Profile, d: boolean) => { const cached = safeRead(storageKey(p, d)) as Snapshot | null; if (state.current.profile?.id !== p.id || state.current.demo !== d) { securityVersion.current++; setSecurity(initialSecurity); } publish({ profile: d ? cached?.profile || p : p, groups: cached?.groups || (d ? demoGroups() : []), pending: cached?.pending || [], demo: d }); setReady(true); }, [publish]);
   useEffect(() => {
     let alive = true; async function boot() {
       try {
@@ -87,6 +90,39 @@ export function useLedger() {
       }
     }
   }, [profile, groups, pending, demo]);
+  const refreshAccount = useCallback(async () => {
+    const before = state.current;
+    if (!supabase || before.demo || !before.profile) return;
+    if (!navigator.onLine) { setSecurity(old => ({ ...old, checking: false, error: 'Connect to the internet to refresh account status.' })); return; }
+    const version = ++securityVersion.current;
+    try {
+      const { data, error } = await supabase.auth.getUser();
+      if (error) throw error;
+      if (!data.user) throw new Error('Your account session could not be checked.');
+      const { data: p, error: profileError } = await supabase.rpc('my_profile');
+      if (profileError) throw profileError;
+      if (version !== securityVersion.current || state.current.demo || state.current.profile?.id !== before.profile.id || p?.id !== before.profile.id) return;
+      const hasPassword = typeof p.hasPassword === 'boolean' ? p.hasPassword : !!state.current.profile.hasPassword;
+      setSecurity({ checking: false, email: data.user.email || '', pendingEmail: data.user.new_email || '', emailConfirmed: !!data.user.email_confirmed_at && !data.user.is_anonymous, hasPassword, error: '' });
+      // Account security is private. Never put the email into shared group members.
+      publish({ ...state.current, profile: { ...state.current.profile, hasPassword } });
+      try { localStorage.setItem(`splitfree-auth-${data.user.id}`, JSON.stringify({ ...p, hasPassword })); } catch {/* The ledger persistence path reports unavailable device storage. */ }
+    } catch (e) { if (version === securityVersion.current) setSecurity(old => ({ ...old, checking: false, error: (e as Error).message })); }
+  }, [publish]);
+  useEffect(() => {
+    if (!profile || demo) return;
+    void refreshAccount();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Defer Auth API calls outside the auth callback's lock.
+    const result = supabase?.auth.onAuthStateChange((_event, session) => {
+      if (!session) return;
+      clearTimeout(timer); timer = setTimeout(() => void refreshAccount(), 0);
+    });
+    const focus = () => void refreshAccount();
+    const visible = () => { if (document.visibilityState === 'visible') void refreshAccount(); };
+    window.addEventListener('focus', focus); document.addEventListener('visibilitychange', visible);
+    return () => { clearTimeout(timer); result?.data.subscription.unsubscribe(); window.removeEventListener('focus', focus); document.removeEventListener('visibilitychange', visible); securityVersion.current++; };
+  }, [profile?.id, demo, online, refreshAccount]);
   const refresh = useCallback(async () => {
     const before = state.current;
     if (!supabase || before.demo || !before.profile || !navigator.onLine)
@@ -189,7 +225,11 @@ export function useLedger() {
       return; if (!current.demo && current.pending.length)
       throw new Error('Sync pending expenses before updating your profile.'); if (!current.demo) {
         if (password) {
-          await setAccountPassword(supabase!.auth, current.profile.username, password, email);
+          try {            
+const user = await setAccountPassword(supabase!.auth, current.profile.username, password, email);
+            securityVersion.current++;
+            setSecurity({ checking: false, email: user.email || '', pendingEmail: user.new_email || '', emailConfirmed: !!user.email_confirmed_at, hasPassword: true, error: '' });
+          } catch (e) { await refreshAccount(); throw e; }
           // Auth and profile writes are separate operations. Preserve the successful
           // password state even if the subsequent display-name/UPI write fails.
           publish({ ...state.current, profile: { ...state.current.profile!, hasPassword: true } });
@@ -229,12 +269,12 @@ export function useLedger() {
         const { error } = await supabase.auth.signOut();
         if (error)
           throw error;
-      } localStorage.removeItem('splitfree-mode'); publish(initial);
+      } localStorage.removeItem('splitfree-mode'); securityVersion.current++; setSecurity(initialSecurity); publish(initial);
   }
   async function reloadCloud() {
     if (!supabase || state.current.demo)
       return; const { data, error } = await supabase.from('ledger_groups').select('document,revision'); if (error)
       throw error; publish({ ...state.current, pending: [], groups: (data || []).map(r => ({ ...r.document, revision: r.revision })) }); setError('');
   }
-  return { profile, groups, demo, ready, online, pending, error, setError, commit, onboard, updateProfile, addFriend, uploadReceipt, signOut, reloadCloud, sync, startDemo: () => { localStorage.setItem('splitfree-mode', 'demo'); apply(demoProfile, true); } };
+  return { profile, groups, security, refreshAccount, demo, ready, online, pending, error, setError, commit, onboard, updateProfile, addFriend, uploadReceipt, signOut, reloadCloud, sync, startDemo: () => { localStorage.setItem('splitfree-mode', 'demo'); apply(demoProfile, true); } };
 }

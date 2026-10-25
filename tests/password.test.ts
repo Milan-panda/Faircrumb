@@ -51,30 +51,30 @@ describe('username password setup', () => {
     await expect(setAccountPassword(f.auth, 'milan', 'short')).rejects.toThrow('12 characters');
     expect(f.updateUser).not.toHaveBeenCalled();
   });
-  it('requires a real email for a new anonymous account',async()=>{
-    const f=fixture();
-    await expect(setAccountPassword(f.auth,'milan','a-long-private-password')).rejects.toThrow('Enter an email');
-    await expect(setAccountPassword(f.auth,'milan','a-long-private-password','milan@splitfree.internal')).rejects.toThrow('real email');
+  it('requires a real email for a new anonymous account', async () => {
+    const f = fixture();
+    await expect(setAccountPassword(f.auth, 'milan', 'a-long-private-password')).rejects.toThrow('Enter an email');
+    await expect(setAccountPassword(f.auth, 'milan', 'a-long-private-password', 'milan@splitfree.internal')).rejects.toThrow('real email');
     expect(f.updateUser).not.toHaveBeenCalled();
   });
-  it('can update an already linked email account without inventing a username alias',async()=>{
-    const f=fixture();f.setUser(permanent);
-    await setAccountPassword(f.auth,'milan','a-long-private-password');
-    expect(f.updateUser).toHaveBeenCalledExactlyOnceWith({password:'a-long-private-password'});
+  it('can update an already linked email account without inventing a username alias', async () => {
+    const f = fixture(); f.setUser(permanent);
+    await setAccountPassword(f.auth, 'milan', 'a-long-private-password');
+    expect(f.updateUser).toHaveBeenCalledExactlyOnceWith({ password: 'a-long-private-password' });
   });
 
-  it('explains the server email quota and never proceeds to set a password',async()=>{
-    const f=fixture();
+  it('explains the server email quota and never proceeds to set a password', async () => {
+    const f = fixture();
     // The client returns Auth errors in its result rather than throwing them.
     f.updateUser.mockReset();
-    f.updateUser.mockResolvedValueOnce({data:{user:anonymous},error:Object.assign(new Error('email rate limit exceeded'),{code:'over_email_send_rate_limit'})} as never);
-    await expect(setAccountPassword(f.auth,'milan','a-long-private-password','milan@mail.com')).rejects.toBeInstanceOf(AuthEmailRateLimited);
+    f.updateUser.mockResolvedValueOnce({ data: { user: anonymous }, error: Object.assign(new Error('email rate limit exceeded'), { code: 'over_email_send_rate_limit' }) } as never);
+    await expect(setAccountPassword(f.auth, 'milan', 'a-long-private-password', 'milan@mail.com')).rejects.toBeInstanceOf(AuthEmailRateLimited);
     expect(f.updateUser).toHaveBeenCalledTimes(1);
   });
-  it('does not resend an email that is already awaiting confirmation',async()=>{
-    const f=fixture();
-    f.getUser.mockResolvedValue({data:{user:{...anonymous,new_email:'milan@mail.com'}},error:null} as never);
-    await expect(setAccountPassword(f.auth,'milan','a-long-private-password','milan@mail.com')).rejects.toThrow('Confirm your email');
+  it('does not resend an email that is already awaiting confirmation', async () => {
+    const f = fixture();
+    f.getUser.mockResolvedValue({ data: { user: { ...anonymous, new_email: 'milan@mail.com' } }, error: null } as never);
+    await expect(setAccountPassword(f.auth, 'milan', 'a-long-private-password', 'milan@mail.com')).rejects.toThrow('Confirm your email');
     expect(f.updateUser).not.toHaveBeenCalled();
   });
 

@@ -16,7 +16,7 @@ Open the URL printed by Vite. Without Supabase credentials, select **Explore the
 
 ## Connect Supabase
 
-1. Create a Supabase project. Run both SQL files in `supabase/migrations/` in filename order, each once in its SQL Editor (or apply them with the Supabase CLI). If the first migration is already applied, run only `202610240002_defaults_and_recovery.sql`.
+1. Create a Supabase project. Run all SQL files in `supabase/migrations/` in filename order, each once in its SQL Editor (or apply them with the Supabase CLI). If earlier migrations are already applied, run only the newer unapplied files; the latest is `202610250001_admin_recovery.sql`.
 2. Enable **Anonymous Sign-Ins**, **Manual linking**, and email/password Auth. New password setup uses a real user-provided email. Email confirmation can stay enabled: configure the correct Site URL / redirect allowlist and a working SMTP provider, then users confirm the email before finishing password setup. Configure a minimum password length of 12. Set Auth rate limits and abuse protection appropriate to your deployment.
 3. Copy the project URL and **publishable key** into `.env.local` as `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`. Never put a service-role or secret key in a `VITE_` variable.
 4. Restart Vite. Create a profile with a name and unique username. Create a group, then add another existing username or create a ghost profile. Share the generated claim token privately with that person; it is shown only once.
@@ -94,3 +94,15 @@ The promotion hides in standalone/installed mode. A browser install prompt is si
 The product is now **faircrumb**. Existing browser-storage keys, Supabase migration filenames and legacy synthetic login addresses retain their original namespace intentionally, so existing sessions, groups, queued writes, drafts and theme preferences continue working. The PWA keeps its original manifest ID, start URL and worker URL; its name/icons and app-shell cache namespace are updated. Activation removes obsolete caches from both namespaces. No database migration or account recreation is required for the rename. The workspace directory remains unchanged.
 
 Use `pnpm icons` to regenerate the original faircrumb SVG and PNG icons. Existing home-screen labels/icons can take time to refresh depending on the browser/OS; secure your account before reinstalling if you choose to refresh a saved home-screen entry.
+
+## Account setup status
+
+Settings shows separate stages for email confirmation and password setup. Once the Auth password is saved, it displays **Account secured**; use **Change password** to reveal the optional replacement field. Status refreshes after Auth events, reload, reconnecting, and returning from the confirmation email. If a confirmation is pending, **I’ve confirmed my email** checks status without sending another email.
+
+Email links request a return to `https://your-host/?account=setup` (or the corresponding localhost origin), which opens Settings directly. Add that URL to Supabase's Auth redirect allowlist alongside the production Site URL. Confirming the email does not itself save a password; complete the final password step if Settings says **Email confirmed. One last step.** Passwords are not stored locally across redirects.
+
+## Admin and anonymous-account recovery
+
+See [the server-only Admin setup guide](docs/ADMIN_SETUP.md). Admin emails are configured as the JSON array `admin_priviledge` in a Supabase Edge Function secret, not a browser/Vite variable. `[]` disables all admins. Every admin request verifies the current Auth user and confirmed email server-side. New RPCs remain inaccessible to ordinary users.
+
+The Admin tab lists users, all groups/ledgers, token status and activity. Historical token plaintext cannot be recovered from one-way hashes; an admin can reissue a 24-hour one-use token for ghost or eligible anonymous profiles. Redemption preserves the original profile and group/expense IDs and revokes the old session's profile access. Do not delete the old Auth row or rewrite profile IDs manually as a recovery shortcut.

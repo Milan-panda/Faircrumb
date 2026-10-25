@@ -4,8 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { Modal } from '../src/components';
 let root: Root; let host: HTMLDivElement;
-function Harness() {  
-const [open, setOpen] = useState(false); return <>
+function Harness() {
+  const [open, setOpen] = useState(false); return <>
     <button onClick={() => setOpen(true)}>Open editor</button>{open && <Modal title="Editor" close={() => setOpen(false)}>
       <input aria-label="Draft" defaultValue="Unsaved" />
     </Modal>}</>;

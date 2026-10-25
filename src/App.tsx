@@ -1,10 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ArrowDownLeft, ArrowDownToLine, ArrowLeft, ArrowRight, ArrowUpRight, BarChart3, Check, ChevronDown, ChevronRight, CircleHelp, Clock3, Cloud, Download, FolderHeart, Home, Eye, EyeOff, Leaf, Link, LogOut, Menu, Plus, Search, Settings, ShieldCheck, Sparkles, Users, Wallet, WifiOff, X } from 'lucide-react';
 import { registerSW } from './lib/pwa';
 import { usePwaInstall, type InstallController } from './lib/install';
 import { InstallButton, InstallPromotion } from './InstallApp';
 import { supabase } from './lib/supabase';
+import { securityStage, type AccountSecurity } from './lib/account-security';
 import { EmailConfirmationRequired } from './lib/password';
+const AdminPage = lazy(() => import('./AdminPage'));
+import { useAdminAccess } from './lib/admin';
 import { useLedger } from './lib/store';
 import { ThemeToggle, ThemeSettings } from './ThemeControls';
 import { Avatar, Amount, Empty, Field, Modal } from './components';
@@ -12,7 +15,7 @@ import ExpenseForm from './ExpenseForm';
 import SplitDefaults from './SplitDefaults';
 import SettlementCard from './SettlementCard';
 import { balances, categories, categoryIcons, debts, exportCsv, lensAmount, money, localDate, restorableExpense, uid, type Expense, type Group, type Audit, type Member } from './lib/domain';
-type Page = 'overview' | 'groups' | 'friends' | 'activity' | 'analytics' | 'settings';
+type Page = 'overview' | 'groups' | 'friends' | 'activity' | 'analytics' | 'settings' | 'admin';
 type Dialog = 'expense' | 'group' | 'member' | 'settle' | 'detail' | 'help' | 'defaults' | null;
 const groupSymbols: Record<string, string> = { trip: '🏖️', home: '🪴', food: '☕', couple: '💛', other: '✨' };
 const navItems: {
@@ -24,7 +27,8 @@ function download(name: string, text: string, type = 'text/csv') { const url = U
 export default function App() {
   const ledger = useLedger();
   const { profile, groups, demo, online, pending } = ledger;
-  const [page, setPage] = useState<Page>('overview');
+  const admin = useAdminAccess(profile?.id, demo);
+  const [page, setPage] = useState<Page>(() => new URLSearchParams(window.location.search).get('account') === 'setup' ? 'settings' : 'overview');
   const [active, setActive] = useState<string | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [editing, setEditing] = useState<Expense | undefined>();
@@ -92,7 +96,9 @@ export default function App() {
   }, [page, active]);
   if (!ledger.ready)
     return <div className="boot">
-      <span className="brand-mark" aria-hidden="true"><img src="/icon.svg" alt=""/></span>
+      <span className="brand-mark" aria-hidden="true">
+        <img src="/icon.svg" alt="" />
+      </span>
       <p>Making room for the good stuff…</p>
     </div>;
   if (!profile)
@@ -104,14 +110,17 @@ export default function App() {
     <a href="#main" className="skip-link">Skip to content</a>
     <aside className={`sidebar ${mobile ? 'open' : ''}`}>
       <a className="brand" href="#" onClick={e => { e.preventDefault(); navigate('overview'); }}>
-        <span className="brand-mark" aria-hidden="true"><img src="/icon.svg" alt=""/></span>faircrumb<span className="brand-dot">.</span>
+        <span className="brand-mark" aria-hidden="true">
+          <img src="/icon.svg" alt="" />
+        </span>faircrumb<span className="brand-dot">.</span>
       </a>
       <button type="button" className="mobile-close icon-button" onClick={() => setMobile(false)} aria-label="Close navigation">
         <X />
       </button>
       <div className="workspace-label">YOUR LITTLE CORNER</div>
       <nav aria-label="Main navigation">{navItems.map(({ id, label, icon: Icon }) => <button type="button" key={id} className={`nav-item ${page === id && !group ? 'active' : ''}`} onClick={() => navigate(id)}>
-        <Icon size={19} />{label}{id === 'groups' && <span className="nav-count">{groups.length}</span>}{id === 'analytics' && <span className="new-badge">FREE</span>}</button>)}</nav>
+        <Icon size={19} />{label}{id === 'groups' && <span className="nav-count">{groups.length}</span>}{id === 'analytics' && <span className="new-badge">FREE</span>}</button>)}{admin.allowed && <button type="button" className={`nav-item ${page === 'admin' ? 'active' : ''}`} onClick={() => navigate('admin')}>
+          <ShieldCheck size={19} />Admin</button>}</nav>
       <div className="sidebar-line" />
       <div className="row spread workspace-label">
         <span>YOUR GROUPS</span>
@@ -149,13 +158,14 @@ export default function App() {
           <button type="button" className="icon-button mobile-menu" onClick={() => setMobile(true)} aria-label="Open navigation">
             <Menu />
           </button>
-          <span className="breadcrumb"><span className="breadcrumb-root">Your space</span> <ChevronRight size={14} />
-            <strong>{group ? group.name : navItems.find(i => i.id === page)?.label || 'Settings'}</strong>
+          <span className="breadcrumb">
+            <span className="breadcrumb-root">Your space</span> <ChevronRight size={14} />
+            <strong>{group ? group.name : navItems.find(i => i.id === page)?.label || (page === 'admin' ? 'Admin' : 'Settings')}</strong>
           </span>
         </div>
         <div className="row topbar-actions">
           <ThemeToggle />
-          <InstallButton controller={install} compact/>
+          <InstallButton controller={install} compact />
           <span className={`sync-status ${!online ? 'offline' : ''}`}>{!online ? <WifiOff size={14} /> : <Cloud size={15} />}<span>{!online ? 'Offline' : demo ? 'Demo workspace' : pending.length ? `${pending.length} pending` : 'Cloud connected'}</span>
           </span>
           <span className="divider" />
@@ -165,7 +175,7 @@ export default function App() {
           <Avatar member={profile} small />
         </div>
       </header>
-      <InstallPromotion controller={install}/>
+      <InstallPromotion controller={install} />
       {demo && <div className="demo-banner">
         <span>
           <Sparkles size={14} /> You’re exploring a demo. Changes stay on this device.</span>
@@ -183,9 +193,21 @@ export default function App() {
           <X size={16} />
         </button>
       </div>}
+      {!demo && !ledger.security.checking && !ledger.security.hasPassword && <div className="account-reminder">
+        <ShieldCheck size={16} />
+        <span>{ledger.security.pendingEmail ? 'Confirm your email, then finish setting your password.' : 'This account is not yet protected with a password. Secure it before clearing browser data or changing devices.'}</span>
+        <button type="button" className="text-button" onClick={() => navigate('settings')}>Secure account<ArrowRight size={14} />
+        </button>
+      </div>}
       <main id="main" className="main-content" data-view={`${page}:${active || 'all'}`}>
         <div className="view-content" key={`${page}:${active || 'all'}`}>
-          {page === 'settings' ? <SettingsPage profile={profile} demo={demo} online={online} pending={pending.length} update={ledger.updateProfile} signOut={ledger.signOut} notify={notify} exportData={() => download('faircrumb-backup.json', JSON.stringify({ profile, groups }, null, 2), 'application/json')} reload={ledger.reloadCloud} install={install} /> : page === 'analytics' ? <>
+          {page === 'admin' ? (admin.allowed ? <Suspense fallback={<p className="helper" role="status">Opening admin workspace…</p>}>
+            <AdminPage />
+          </Suspense> : <div className="panel settings-panel">
+            <h1>Admin access required</h1>
+            <p className="helper">{admin.checking ? 'Checking your verified email with the server…' : admin.error || 'The server has not authorized this account.'}</p>
+            <button type="button" className="button" onClick={() => void admin.check()}>Check access</button>
+          </div>) : page === 'settings' ? <SettingsPage security={ledger.security} refreshAccount={ledger.refreshAccount} profile={profile} demo={demo} online={online} pending={pending.length} update={ledger.updateProfile} signOut={ledger.signOut} notify={notify} exportData={() => download('faircrumb-backup.json', JSON.stringify({ profile, groups }, null, 2), 'application/json')} reload={ledger.reloadCloud} install={install} /> : page === 'analytics' ? <>
             <PageHeading eyebrow="A LITTLE CLARITY GOES A LONG WAY" title="Your money, in perspective." subtitle="What you paid and what you actually spent. Finally, separate." actions={<>
               <button type="button" className="button" onClick={() => window.print()}>
                 <Download size={16} /> Save PDF</button>
@@ -470,7 +492,9 @@ export default function App() {
         <h4>Keep your account</h4>
         <p>Anonymous accounts live in your browser. Add your email and set a password in Settings before clearing site data or switching devices. Keep ghost claim tokens private.</p>
         <h4>Install on your phone</h4>
-        <p>Add faircrumb to your home screen for easy access.</p><InstallButton controller={install}/></div>
+        <p>Add faircrumb to your home screen for easy access.</p>
+        <InstallButton controller={install} />
+      </div>
     </Modal>}
     {toast && <div className="toast" role="status">
       <Check size={17} />{toast}</div>}
@@ -519,7 +543,9 @@ function Onboarding({ onStart, demo, error, install }: {
   return <main className="welcome">
     <div className="welcome-story">
       <a href="#" className="brand">
-        <span className="brand-mark" aria-hidden="true"><img src="/icon.svg" alt=""/></span>faircrumb.</a>
+        <span className="brand-mark" aria-hidden="true">
+          <img src="/icon.svg" alt="" />
+        </span>faircrumb.</a>
       <div className="welcome-copy">
         <div className="eyebrow">LESS OWING. MORE LIVING.</div>
         <h1>For the trips.<br />The dinners.<br />
@@ -551,23 +577,23 @@ function Onboarding({ onStart, demo, error, install }: {
         <ThemeToggle />
       </div>
       <div className="onboarding-card">
-        <InstallPromotion controller={install}/>
+        <InstallPromotion controller={install} />
         <span className="pill">
           <Leaf size={13} /> A LITTLE LESS FRICTION</span>
         <h2>{login ? 'Welcome back.' : 'Make yourself at home.'}</h2>
         <p>{login ? 'Your people and your tabs are right where you left them.' : 'A name, a username, and you’re in. No email needed.'}</p>
         <form className="form-stack" onSubmit={submit}>{!login && <Field label="Your name">
           <input autoComplete="name" placeholder="Alex Morgan" maxLength={60} required value={name} onChange={e => setName(e.target.value)} />
-        </Field>}<Field label={login?"Email or legacy username":"Your username"} hint={login?"Use the email you added in Settings. Older username-only accounts can still use their username.":"3–24 characters. Letters, numbers, and underscores."}>
+        </Field>}<Field label={login ? "Email or legacy username" : "Your username"} hint={login ? "Use the email you added in Settings. Older username-only accounts can still use their username." : "3–24 characters. Letters, numbers, and underscores."}>
             <div className="username-input">
-              <span>{login?'↗':'@'}</span>
-              <input autoComplete="username" pattern={login?undefined:"@?[a-zA-Z0-9_]{3,24}"} placeholder={login?"you@example.com":"alex"} required value={user} onChange={e => setUser(e.target.value)} />
+              <span>{login ? '↗' : '@'}</span>
+              <input autoComplete="username" pattern={login ? undefined : "@?[a-zA-Z0-9_]{3,24}"} placeholder={login ? "you@example.com" : "alex"} required value={user} onChange={e => setUser(e.target.value)} />
             </div>
           </Field>{login ? <Field label="Password">
             <input type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} />
           </Field> : <details>
-            <summary>Claiming a profile a friend made?</summary>
-            <Field label="Private claim token">
+            <summary>Recover an account or claim a friend’s profile</summary>
+            <Field label="Private claim or recovery token">
               <input value={claim} onChange={e => setClaim(e.target.value)} autoComplete="off" />
             </Field>
           </details>}{issue && <p className="form-error" role="alert">{issue}</p>}<button type="submit" className="button primary full" disabled={busy}>{busy ? 'Getting things ready…' : login ? 'Welcome back' : 'Let’s get started'}<ArrowRight size={17} />
@@ -752,14 +778,16 @@ function Analytics({ groups, me, lens, period }: {
     </div>
   </>;
 }
-function SettingsPage({ profile, demo, online, pending, update, signOut, notify, exportData, reload, install }: {
+function SettingsPage({ security, refreshAccount, profile, demo, online, pending, update, signOut, notify, exportData, reload, install }: {
+  security: AccountSecurity;
+  refreshAccount: () => Promise<void>;
   profile: Member & {
     hasPassword?: boolean;
   };
   demo: boolean;
   online: boolean;
   pending: number;
-  update: (n: string, u: string, p: string, email?:string) => Promise<void>;
+  update: (n: string, u: string, p: string, email?: string) => Promise<void>;
   signOut: () => Promise<void>;
   notify: (s: string) => void;
   exportData: () => void;
@@ -770,9 +798,12 @@ function SettingsPage({ profile, demo, online, pending, update, signOut, notify,
   const [upi, setUpi] = useState(profile.upi || '');
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
+  const stage = demo ? (profile.hasPassword ? 'secured' : 'start') : securityStage(security, profile.hasPassword);
+  const secured = stage === 'secured';
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [confirmation,setConfirmation]=useState('');
+  const [confirmation, setConfirmation] = useState('');
   const [confirm, setConfirm] = useState(false);
   const [leaving, setLeaving] = useState(false);
   async function run(action: () => Promise<void>) {
@@ -783,16 +814,16 @@ function SettingsPage({ profile, demo, online, pending, update, signOut, notify,
       await action();
     }
     catch (e) {
-      if(e instanceof EmailConfirmationRequired){setConfirmation(e.message);setPassword('');setPasswordVisible(false);}
+      if (e instanceof EmailConfirmationRequired) { setConfirmation(e.message); setPassword(''); setPasswordVisible(false); }
       else setError((e as Error).message);
     }
     finally {
       setBusy(false);
     }
   }
-  const [recoveryEmail,setRecoveryEmail]=useState('');
-  useEffect(()=>{let active=true;if(!demo&&supabase)void supabase.auth.getUser().then(({data})=>{const linked=data.user?.email||data.user?.new_email;if(active&&linked&&!linked.endsWith('.internal'))setRecoveryEmail(current=>current||linked);});return()=>{active=false;};},[demo]);
-  async function persistProfile() { await update(name.trim(), upi.trim(), password, recoveryEmail); setPassword(''); setPasswordVisible(false); notify('Profile saved. Looking good.'); }
+  const [recoveryEmail, setRecoveryEmail] = useState('');
+  useEffect(() => { const linked = security.email || security.pendingEmail; if (linked && !linked.endsWith('.internal')) setRecoveryEmail(current => current || linked); }, [security.email, security.pendingEmail]);
+  async function persistProfile() { await update(name.trim(), upi.trim(), password, recoveryEmail); setPassword(''); setPasswordVisible(false); setChangingPassword(false); notify(password ? 'Password saved. Your account is secured.' : 'Profile saved. Looking good.'); }
   async function discardAndReload() { await reload(); setConfirm(false); notify('Cloud data loaded.'); }
   return <>
     <PageHeading eyebrow="YOUR SPACE, YOUR WAY" title="The personal bits." subtitle="A familiar name, a way to pay, and a little peace of mind." />
@@ -815,18 +846,24 @@ function SettingsPage({ profile, demo, online, pending, update, signOut, notify,
           <div className="settings-divider" />
           <div className="row">
             <ShieldCheck size={20} />
-            <h3>{profile.hasPassword ? 'Update your password' : 'Keep your account, anywhere.'}</h3>
+            <h3>{secured ? 'Account secured' : stage === 'confirm-email' ? 'Check your email' : stage === 'set-password' ? 'Email confirmed. One last step.' : stage === 'unavailable' ? 'Account status unavailable' : stage === 'checking' ? 'Checking account security…' : 'Keep your account, anywhere.'}</h3>
           </div>
-          <p className="helper">Add your email and a password to sign in on another device. Your @{profile.username} identity and existing expenses stay the same. Confirm the email link if Supabase sends one, then return here to finish setting your password.</p>
-          <Field label="Sign-in email" hint="Use an email address you can access. Email is only needed when securing your account, not when getting started."><input type="email" autoComplete="email" placeholder="you@example.com" required={!!password&&!profile.hasPassword&&!demo} value={recoveryEmail} onChange={e=>setRecoveryEmail(e.target.value)}/></Field>
-          <Field label={profile.hasPassword ? 'New password (optional)' : 'Set a password (optional)'}>
+          <p className="helper" role="status">{secured ? 'Your password is set. You can sign in on another device with your email and password.' : stage === 'confirm-email' ? `A confirmation link was sent to ${security.pendingEmail}. Open it, then return here to finish password setup.` : stage === 'set-password' ? 'Your email is verified. Enter a password below to finish securing your account. Email confirmation alone does not set your password.' : stage === 'unavailable' ? 'Your saved account status could not be checked. Reconnect and check again before changing your password.' : stage === 'checking' ? 'Checking your saved password and email status.' : 'Add your email and a password to sign in on another device. Your username and existing expenses stay the same.'}</p>
+          {security.error && !demo && <p className="helper">Could not refresh account status: {security.error} <button type="button" className="text-button" onClick={() => void refreshAccount()}>Check again</button>
+          </p>}
+          {stage === 'confirm-email' && <button type="button" className="button" disabled={!online || busy} onClick={() => void refreshAccount()}>I’ve confirmed my email</button>}
+          <Field label="Sign-in email" hint="Use an email address you can access. Email is only needed when securing your account, not when getting started.">
+            <input type="email" autoComplete="email" placeholder="you@example.com" readOnly={secured || stage === 'confirm-email' || stage === 'set-password'} required={!!password && !secured && !demo} value={recoveryEmail} onChange={e => setRecoveryEmail(e.target.value)} />
+          </Field>
+          {secured && !changingPassword && <button type="button" className="button" onClick={() => setChangingPassword(true)}>Change password</button>}
+          {(!secured || changingPassword) && stage !== 'checking' && stage !== 'unavailable' && stage !== 'confirm-email' && <Field label={secured ? 'New password' : 'Set your password'}>
             <div className="password-input" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setPasswordVisible(false); }}>
               <input id="settings-password" type={passwordVisible ? 'text' : 'password'} minLength={12} autoComplete="new-password" placeholder="At least 12 characters" value={password} onChange={e => setPassword(e.target.value)} />
               <button type="button" className="icon-button password-toggle" aria-label={passwordVisible ? 'Hide password' : 'Show password'} aria-controls="settings-password" aria-pressed={passwordVisible} onMouseDown={event => event.preventDefault()} onClick={() => setPasswordVisible(visible => !visible)}>
                 {passwordVisible ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
               </button>
             </div>
-          </Field>{demo && <p className="helper">Demo settings stay on this device. No password is registered.</p>}{confirmation&&<p className="confirmation-notice" role="status">{confirmation}</p>}{error && <p className="form-error" role="alert">{error}</p>}<button type="submit" className="button primary" disabled={busy || !online || pending > 0}>{busy ? 'Saving…' : 'Save changes'}<Check size={16} />
+          </Field>}{secured && changingPassword && <button type="button" className="text-button" onClick={() => { setChangingPassword(false); setPassword(''); setPasswordVisible(false); }}>Cancel password change</button>}{demo && <p className="helper">Demo settings stay on this device. No password is registered.</p>}{confirmation && !secured && !security.emailConfirmed && <p className="confirmation-notice" role="status">{confirmation}</p>}{error && <p className="form-error" role="alert">{error}</p>}<button type="submit" className="button primary" disabled={busy || !online || pending > 0}>{busy ? 'Saving…' : 'Save changes'}<Check size={16} />
           </button>
         </form>
       </section>
@@ -845,7 +882,7 @@ function SettingsPage({ profile, demo, online, pending, update, signOut, notify,
               </div>}</>}</section>
         <section className="panel settings-panel">
           <h3>Feels right at home.</h3>
-          <p className="helper">Keep faircrumb on your home screen for quick access to your groups.</p>{install.installed?<span className="tag">You’re using the installed app</span>:<InstallButton controller={install}/>}</section>
+          <p className="helper">Keep faircrumb on your home screen for quick access to your groups.</p>{install.installed ? <span className="tag">You’re using the installed app</span> : <InstallButton controller={install} />}</section>
         <button type="button" className="button danger" onClick={() => {
           if (demo || profile.hasPassword) {
             void run(signOut);

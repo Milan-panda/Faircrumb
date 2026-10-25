@@ -21,13 +21,13 @@ export default function SettlementCard({ group, debt, me, save }: { group: Group
       </span>
       <strong>{money(debt.amount)}</strong>
     </div>
-    {review ? <form className="form-stack payment-review" onSubmit={e => {      
-e.preventDefault(); try {
+    {review ? <form className="form-stack payment-review" onSubmit={e => {
+      e.preventDefault(); try {
         const paid = cents(amount); if (!paid || paid > debt.amount) throw new Error(`Enter a payment between ₹0.01 and ${money(debt.amount)}.`);
         if (!participant) throw new Error('Only the payer or recipient can record this payment.');
         save(group, { id: uid(), description: `${from.name.split(' ')[0]} paid ${to.name.split(' ')[0]}`, amount: paid, category: 'Settlement', date, splitType: 'SETTLEMENT', excluded: true, splits: group.members.map(m => ({ memberId: m.id, paid: m.id === from.id ? paid : 0, owed: m.id === to.id ? paid : 0 })) });
-      } catch (e) { setError((e as Error).message); }    
-}}>
+      } catch (e) { setError((e as Error).message); }
+    }}>
       <div className="form-grid">
         <Field label="Amount paid · INR">
           <input autoFocus inputMode="decimal" required value={amount} onChange={e => setAmount(e.target.value)} />
